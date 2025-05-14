@@ -16,9 +16,32 @@ function mergeMcpServers(target: any, source: any): any {
     
     // 合并mcpServers对象
     Object.keys(source.mcpServers).forEach(key => {
-      merged.mcpServers[key] = source.mcpServers[key];
+      // 检查目标对象中是否已存在同名服务器配置
+      if (!merged.mcpServers[key]) {
+        // 如果不存在，直接添加
+        merged.mcpServers[key] = source.mcpServers[key];
+      } else {
+        // 如果存在，合并其属性，确保不丢失任何配置
+        merged.mcpServers[key] = { 
+          ...merged.mcpServers[key], 
+          ...source.mcpServers[key] 
+        };
+        
+        // 特殊处理数组类型的属性，比如args，确保正确合并
+        if (Array.isArray(source.mcpServers[key].args) && Array.isArray(merged.mcpServers[key].args)) {
+          // 使用新的args数组替换旧的
+          merged.mcpServers[key].args = [...source.mcpServers[key].args];
+        }
+      }
     });
   }
+  
+  // 合并其它可能存在的非mcpServers属性
+  Object.keys(source || {}).forEach(key => {
+    if (key !== 'mcpServers') {
+      merged[key] = source[key];
+    }
+  });
   
   return merged;
 }
@@ -432,13 +455,13 @@ async function getJsonInput(): Promise<string | undefined> {
 }
 
 export function activate(context: vscode.ExtensionContext) {
-  console.log('MCP Merge Extension 已激活');
+  console.log('AddMCP 已激活');
   
   // 添加状态栏项，显示扩展已激活
   const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  statusBarItem.text = '$(json) MCP合并';
-  statusBarItem.tooltip = 'MCP Merge Extension 已激活';
-  statusBarItem.command = 'mcp-merge-extension.addMcpJson'; // 点击状态栏项时执行添加命令
+  statusBarItem.text = '$(json) AddMCP';
+  statusBarItem.tooltip = 'AddMCP 已激活';
+  statusBarItem.command = 'addmcp.addMcpJson'; // 点击状态栏项时执行添加命令
   statusBarItem.show();
   
   context.subscriptions.push(statusBarItem);
@@ -483,16 +506,25 @@ export function activate(context: vscode.ExtensionContext) {
   });
 
   // 注册命令：手动触发合并
-  const mergeCommand = vscode.commands.registerCommand('mcp-merge-extension.mergeMcpJson', async () => {
+  const mergeCommand = vscode.commands.registerCommand('addmcp.mergeMcpJson', async () => {
     try {
-      const statusMessage = showStatusMessage('正在合并MCP JSON...');
+      // 获取当前活动编辑器
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showWarningMessage('没有打开的JSON文件');
+        return;
+      }
       
-      // 查找mcp.json文件
-      const mcpJsonUri = await findMcpJsonFile();
+      // 验证文件是否是JSON文件
+      if (!editor.document.fileName.toLowerCase().endsWith('.json')) {
+        vscode.window.showWarningMessage('当前文件不是JSON文件');
+        return;
+      }
       
-      // 打开文件
-      const document = await vscode.workspace.openTextDocument(mcpJsonUri);
-      const text = document.getText();
+      const statusMessage = showStatusMessage('正在合并当前JSON文件中的所有JSON对象...');
+      
+      // 获取文档全文
+      const text = editor.document.getText();
       
       // 合并JSON
       let mergedJson = findAndMergeJsonObjects(text);
@@ -506,10 +538,10 @@ export function activate(context: vscode.ExtensionContext) {
         // 更新文件内容
         const edit = new vscode.WorkspaceEdit();
         edit.replace(
-          mcpJsonUri,
+          editor.document.uri,
           new vscode.Range(
-            document.positionAt(0),
-            document.positionAt(text.length)
+            editor.document.positionAt(0),
+            editor.document.positionAt(text.length)
           ),
           mergedJson
         );
@@ -517,27 +549,20 @@ export function activate(context: vscode.ExtensionContext) {
         // 应用编辑
         await vscode.workspace.applyEdit(edit);
         
-        // 打开文件
-        await vscode.window.showTextDocument(document);
-        
         statusMessage.dispose();
-        vscode.window.showInformationMessage('MCP JSON 合并成功！', '查看文件').then(selection => {
-          if (selection === '查看文件') {
-            vscode.window.showTextDocument(document);
-          }
-        });
+        vscode.window.showInformationMessage('当前JSON文件合并成功！');
       } else {
         statusMessage.dispose();
-        vscode.window.showWarningMessage('无法合并MCP JSON，请检查文件格式。');
+        vscode.window.showWarningMessage('无法合并当前JSON文件，请检查文件格式。');
       }
     } catch (e) {
       console.error('合并失败:', e);
-      vscode.window.showErrorMessage('合并MCP JSON时出错: ' + e);
+      vscode.window.showErrorMessage('合并JSON时出错: ' + e);
     }
   });
 
   // 注册命令：添加MCP JSON
-  const addMcpJsonCommand = vscode.commands.registerCommand('mcp-merge-extension.addMcpJson', async () => {
+  const addMcpJsonCommand = vscode.commands.registerCommand('addmcp.addMcpJson', async () => {
     // 提示用户输入JSON内容
     const jsonInput = await getJsonInput();
 
@@ -565,7 +590,7 @@ export function activate(context: vscode.ExtensionContext) {
   });
 
   // 注册命令：添加MCP JSON到当前文件（右键菜单使用）
-  const addToCurrentFileCommand = vscode.commands.registerCommand('mcp-merge-extension.addToCurrentFile', async (uri: vscode.Uri) => {
+  const addToCurrentFileCommand = vscode.commands.registerCommand('addmcp.addToCurrentFile', async (uri: vscode.Uri) => {
     try {
       let fileUri: vscode.Uri;
       
@@ -615,5 +640,5 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
-  console.log('MCP Merge Extension 已停用');
+  console.log('AddMCP 已停用');
 } 

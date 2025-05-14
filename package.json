@@ -15,6 +15,24 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "addmcp-explorer",
+          "title": "MCP 服务管理器",
+          "icon": "$(server)"
+        }
+      ]
+    },
+    "views": {
+      "addmcp-explorer": [
+        {
+          "id": "mcpServersView",
+          "name": "MCP 服务列表",
+          "canSelectMany": false
+        }
+      ]
+    },
     "commands": [
       {
         "command": "addmcp.mergeMcpJson",
@@ -39,6 +57,49 @@
           "light": "resources/menu-icon-light.png",
           "dark": "resources/menu-icon-dark.png"
         }
+      },
+      {
+        "command": "addmcp.showMcpServers",
+        "title": "查看MCP服务列表",
+        "icon": {
+          "light": "resources/menu-icon-light.png",
+          "dark": "resources/menu-icon-dark.png"
+        }
+      },
+      {
+        "command": "addmcp.mcpServersView.refresh",
+        "title": "刷新",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "addmcp.mcpServersView.addServer",
+        "title": "添加MCP服务",
+        "icon": "$(add)"
+      },
+      {
+        "command": "addmcp.mcpServersView.search",
+        "title": "搜索MCP服务",
+        "icon": "$(search)"
+      },
+      {
+        "command": "addmcp.mcpServersView.clearSearch",
+        "title": "清除搜索",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "addmcp.mcpServersView.deleteServer",
+        "title": "删除",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "addmcp.mcpServersView.moveUp",
+        "title": "上移",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "addmcp.mcpServersView.moveDown",
+        "title": "下移",
+        "icon": "$(arrow-down)"
       }
     ],
     "menus": {
@@ -47,12 +108,22 @@
           "when": "resourceExtname == .json",
           "command": "addmcp.addToCurrentFile",
           "group": "1_modification"
+        },
+        {
+          "when": "resourceExtname == .json",
+          "command": "addmcp.showMcpServers",
+          "group": "1_modification"
         }
       ],
       "explorer/context": [
         {
           "when": "resourceExtname == .json",
           "command": "addmcp.addToCurrentFile",
+          "group": "1_modification"
+        },
+        {
+          "when": "resourceExtname == .json",
+          "command": "addmcp.showMcpServers",
           "group": "1_modification"
         }
       ],
@@ -61,6 +132,50 @@
           "when": "resourceExtname == .json",
           "command": "addmcp.addToCurrentFile",
           "group": "navigation"
+        },
+        {
+          "when": "resourceExtname == .json",
+          "command": "addmcp.showMcpServers",
+          "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "addmcp.mcpServersView.refresh",
+          "when": "view == mcpServersView",
+          "group": "navigation"
+        },
+        {
+          "command": "addmcp.mcpServersView.addServer",
+          "when": "view == mcpServersView",
+          "group": "navigation"
+        },
+        {
+          "command": "addmcp.mcpServersView.search",
+          "when": "view == mcpServersView",
+          "group": "navigation"
+        },
+        {
+          "command": "addmcp.mcpServersView.clearSearch",
+          "when": "view == mcpServersView && addmcp:hasSearchFilter",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "addmcp.mcpServersView.deleteServer",
+          "when": "view == mcpServersView",
+          "group": "inline"
+        },
+        {
+          "command": "addmcp.mcpServersView.moveUp",
+          "when": "view == mcpServersView",
+          "group": "inline"
+        },
+        {
+          "command": "addmcp.mcpServersView.moveDown",
+          "when": "view == mcpServersView",
+          "group": "inline"
         }
       ],
       "commandPalette": [
@@ -75,6 +190,38 @@
         {
           "command": "addmcp.addToCurrentFile",
           "when": "editorLangId == json"
+        },
+        {
+          "command": "addmcp.showMcpServers",
+          "when": "editorLangId == json"
+        },
+        {
+          "command": "addmcp.mcpServersView.refresh",
+          "when": "false"
+        },
+        {
+          "command": "addmcp.mcpServersView.addServer",
+          "when": "false"
+        },
+        {
+          "command": "addmcp.mcpServersView.search", 
+          "when": "false"
+        },
+        {
+          "command": "addmcp.mcpServersView.clearSearch",
+          "when": "false"
+        },
+        {
+          "command": "addmcp.mcpServersView.deleteServer",
+          "when": "false"
+        },
+        {
+          "command": "addmcp.mcpServersView.moveUp",
+          "when": "false"
+        },
+        {
+          "command": "addmcp.mcpServersView.moveDown",
+          "when": "false"
         }
       ]
     }

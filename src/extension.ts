@@ -3,6 +3,309 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
+// 表示MCP服务器数据的接口
+interface McpServer {
+  command: string;
+  args?: string[];
+  env?: { [key: string]: string };
+  [key: string]: any;
+}
+
+// 表示MCP配置的接口
+interface McpConfig {
+  mcpServers: { [key: string]: McpServer };
+  [key: string]: any;
+}
+
+// 表示树视图中的MCP服务器项
+class McpServerTreeItem extends vscode.TreeItem {
+  constructor(
+    public readonly serverName: string,
+    public readonly server: McpServer,
+    public readonly index: number,
+    public readonly collapsibleState: vscode.TreeItemCollapsibleState = vscode.TreeItemCollapsibleState.None
+  ) {
+    super(serverName, collapsibleState);
+    
+    this.tooltip = `${serverName}\n命令: ${server.command}\n参数: ${(server.args || []).join(' ')}`;
+    this.description = server.command;
+    this.iconPath = new vscode.ThemeIcon('server');
+    this.contextValue = 'mcpServer';
+  }
+}
+
+// MCP服务器树视图数据提供者
+class McpServersProvider implements vscode.TreeDataProvider<McpServerTreeItem> {
+  private _onDidChangeTreeData: vscode.EventEmitter<McpServerTreeItem | undefined | null | void> = new vscode.EventEmitter<McpServerTreeItem | undefined | null | void>();
+  readonly onDidChangeTreeData: vscode.Event<McpServerTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
+  
+  private currentFilePath: string | undefined;
+  private servers: { name: string; server: McpServer; index: number }[] = [];
+  private filteredServers: { name: string; server: McpServer; index: number }[] = [];
+  private _searchQuery: string = '';
+  
+  constructor() {
+    this.currentFilePath = undefined;
+  }
+  
+  // 获取当前搜索查询
+  get searchQuery(): string {
+    return this._searchQuery;
+  }
+  
+  refresh(): void {
+    this._onDidChangeTreeData.fire();
+  }
+  
+  // 当用户搜索时设置搜索文本
+  setSearchQuery(query: string): void {
+    this._searchQuery = query || '';
+    this.applyFilter();
+    
+    // 设置搜索状态上下文，控制清除搜索按钮的显示
+    vscode.commands.executeCommand('setContext', 'addmcp:hasSearchFilter', !!this._searchQuery);
+  }
+  
+  // 清除搜索
+  clearSearch(): void {
+    this._searchQuery = '';
+    this.applyFilter();
+    vscode.commands.executeCommand('setContext', 'addmcp:hasSearchFilter', false);
+  }
+  
+  // 内部方法：应用过滤逻辑
+  private applyFilter(): void {
+    if (!this._searchQuery || this._searchQuery.trim() === '') {
+      // 如果没有搜索查询，显示所有服务器
+      this.filteredServers = [...this.servers];
+    } else {
+      // 如果有搜索查询，过滤服务器
+      const query = this._searchQuery.toLowerCase();
+      this.filteredServers = this.servers.filter(server => {
+        const serverName = server.name.toLowerCase();
+        const command = server.server.command.toLowerCase();
+        
+        // 检查名称和命令是否包含查询字符串
+        return serverName.includes(query) || command.includes(query);
+      });
+    }
+    
+    // 通知树视图更新
+    this.refresh();
+  }
+  
+  setCurrentFile(filePath: string): void {
+    this.currentFilePath = filePath;
+    this.loadServers();
+    
+    // 重置搜索状态
+    this._searchQuery = '';
+    vscode.commands.executeCommand('setContext', 'addmcp:hasSearchFilter', false);
+  }
+  
+  getCurrentFilePath(): string | undefined {
+    return this.currentFilePath;
+  }
+  
+  getTreeItem(element: McpServerTreeItem): vscode.TreeItem {
+    return element;
+  }
+  
+  getChildren(element?: McpServerTreeItem): Thenable<McpServerTreeItem[]> {
+    if (element) {
+      return Promise.resolve([]);
+    }
+    
+    return Promise.resolve(
+      this.filteredServers.map(server => new McpServerTreeItem(server.name, server.server, server.index))
+    );
+  }
+  
+  loadServers(): void {
+    this.servers = [];
+    this.filteredServers = [];
+    
+    if (!this.currentFilePath || !fs.existsSync(this.currentFilePath)) {
+      this.refresh();
+      return;
+    }
+    
+    try {
+      const fileContent = fs.readFileSync(this.currentFilePath, 'utf8');
+      let config: McpConfig;
+      
+      try {
+        config = JSON.parse(fileContent);
+      } catch (e) {
+        // 如果解析失败，尝试合并多个JSON对象
+        const mergedJson = findAndMergeJsonObjects(fileContent);
+        if (mergedJson) {
+          config = JSON.parse(mergedJson);
+        } else {
+          vscode.window.showErrorMessage('无法解析当前文件的JSON内容');
+          return;
+        }
+      }
+      
+      if (config.mcpServers) {
+        this.servers = Object.entries(config.mcpServers).map(([name, server], index) => ({
+          name,
+          server,
+          index
+        }));
+        
+        // 应用过滤
+        this.filteredServers = [...this.servers];
+      }
+      
+      this.refresh();
+    } catch (e) {
+      console.error('加载服务器失败:', e);
+      vscode.window.showErrorMessage('加载MCP服务器失败: ' + e);
+    }
+  }
+  
+  // 删除指定的服务器
+  async deleteServer(serverItem: McpServerTreeItem): Promise<boolean> {
+    if (!this.currentFilePath) {
+      vscode.window.showErrorMessage('没有活动的JSON文件');
+      return false;
+    }
+    
+    try {
+      const confirmation = await vscode.window.showWarningMessage(
+        `确定要删除 ${serverItem.serverName} 服务器吗？`,
+        { modal: true },
+        '确定',
+        '取消'
+      );
+      
+      if (confirmation !== '确定') {
+        return false;
+      }
+      
+      const fileContent = fs.readFileSync(this.currentFilePath, 'utf8');
+      let config: McpConfig;
+      
+      try {
+        config = JSON.parse(fileContent);
+      } catch (e) {
+        const mergedJson = findAndMergeJsonObjects(fileContent);
+        if (mergedJson) {
+          config = JSON.parse(mergedJson);
+        } else {
+          vscode.window.showErrorMessage('无法解析当前文件的JSON内容');
+          return false;
+        }
+      }
+      
+      if (config.mcpServers && config.mcpServers[serverItem.serverName]) {
+        // 删除服务器
+        delete config.mcpServers[serverItem.serverName];
+        
+        // 写回文件
+        fs.writeFileSync(this.currentFilePath, JSON.stringify(config, null, 2), 'utf8');
+        
+        // 重新加载
+        this.loadServers();
+        
+        vscode.window.showInformationMessage(`已成功删除 ${serverItem.serverName} 服务器`);
+        return true;
+      } else {
+        vscode.window.showErrorMessage(`未找到 ${serverItem.serverName} 服务器`);
+        return false;
+      }
+    } catch (e) {
+      console.error('删除服务器失败:', e);
+      vscode.window.showErrorMessage('删除服务器失败: ' + e);
+      return false;
+    }
+  }
+  
+  // 移动服务器位置（上移或下移）
+  async moveServer(serverItem: McpServerTreeItem, direction: 'up' | 'down'): Promise<boolean> {
+    if (!this.currentFilePath) {
+      vscode.window.showErrorMessage('没有活动的JSON文件');
+      return false;
+    }
+    
+    try {
+      // 找到服务器在数组中的位置
+      const index = this.servers.findIndex(s => s.name === serverItem.serverName);
+      if (index === -1) {
+        vscode.window.showErrorMessage(`未找到 ${serverItem.serverName} 服务器`);
+        return false;
+      }
+      
+      // 计算目标位置
+      let targetIndex: number;
+      if (direction === 'up') {
+        targetIndex = Math.max(0, index - 1);
+        if (targetIndex === index) {
+          // 已经在顶部
+          return false;
+        }
+      } else {
+        targetIndex = Math.min(this.servers.length - 1, index + 1);
+        if (targetIndex === index) {
+          // 已经在底部
+          return false;
+        }
+      }
+      
+      // 读取文件
+      const fileContent = fs.readFileSync(this.currentFilePath, 'utf8');
+      let config: McpConfig;
+      
+      try {
+        config = JSON.parse(fileContent);
+      } catch (e) {
+        const mergedJson = findAndMergeJsonObjects(fileContent);
+        if (mergedJson) {
+          config = JSON.parse(mergedJson);
+        } else {
+          vscode.window.showErrorMessage('无法解析当前文件的JSON内容');
+          return false;
+        }
+      }
+      
+      // 重新排序服务器
+      if (config.mcpServers) {
+        // 创建一个新的有序对象来存储重排后的服务器
+        const orderedServers: { [key: string]: McpServer } = {};
+        
+        // 获取所有服务器名称
+        const serverNames = Object.keys(config.mcpServers);
+        
+        // 交换位置
+        [serverNames[index], serverNames[targetIndex]] = [serverNames[targetIndex], serverNames[index]];
+        
+        // 按新顺序重建对象
+        serverNames.forEach(name => {
+          orderedServers[name] = config.mcpServers[name];
+        });
+        
+        // 更新配置
+        config.mcpServers = orderedServers;
+        
+        // 写回文件
+        fs.writeFileSync(this.currentFilePath, JSON.stringify(config, null, 2), 'utf8');
+        
+        // 重新加载
+        this.loadServers();
+        
+        return true;
+      }
+      
+      return false;
+    } catch (e) {
+      console.error('移动服务器失败:', e);
+      vscode.window.showErrorMessage('移动服务器失败: ' + e);
+      return false;
+    }
+  }
+}
+
 /**
  * 合并两个mcpServers对象
  */
@@ -19,7 +322,7 @@ function mergeMcpServers(target: any, source: any): any {
       // 检查目标对象中是否已存在同名服务器配置
       if (!merged.mcpServers[key]) {
         // 如果不存在，直接添加
-        merged.mcpServers[key] = source.mcpServers[key];
+      merged.mcpServers[key] = source.mcpServers[key];
       } else {
         // 如果存在，合并其属性，确保不丢失任何配置
         merged.mcpServers[key] = { 
@@ -457,6 +760,15 @@ async function getJsonInput(): Promise<string | undefined> {
 export function activate(context: vscode.ExtensionContext) {
   console.log('AddMCP 已激活');
   
+  // 创建MCP服务器树视图提供者
+  const mcpServersProvider = new McpServersProvider();
+  
+  // 注册树视图（移除了searchOnType）
+  const mcpServersView = vscode.window.createTreeView('mcpServersView', {
+    treeDataProvider: mcpServersProvider,
+    showCollapseAll: false
+  });
+  
   // 添加状态栏项，显示扩展已激活
   const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.text = '$(json) AddMCP';
@@ -464,7 +776,115 @@ export function activate(context: vscode.ExtensionContext) {
   statusBarItem.command = 'addmcp.addMcpJson'; // 点击状态栏项时执行添加命令
   statusBarItem.show();
   
-  context.subscriptions.push(statusBarItem);
+  context.subscriptions.push(statusBarItem, mcpServersView);
+
+  // 注册搜索命令
+  const searchCommand = vscode.commands.registerCommand('addmcp.mcpServersView.search', async () => {
+    const query = await vscode.window.showInputBox({
+      placeHolder: '搜索MCP服务...',
+      prompt: '输入关键词搜索服务名称或命令',
+      value: mcpServersProvider.searchQuery || ''
+    });
+    
+    // 如果用户点击取消则返回undefined，我们不处理
+    if (query !== undefined) {
+      mcpServersProvider.setSearchQuery(query);
+    }
+  });
+  
+  // 注册清除搜索命令
+  const clearSearchCommand = vscode.commands.registerCommand('addmcp.mcpServersView.clearSearch', () => {
+    mcpServersProvider.clearSearch();
+  });
+  
+  // 注册显示MCP服务器列表命令
+  const showMcpServersCommand = vscode.commands.registerCommand('addmcp.showMcpServers', async (uri: vscode.Uri) => {
+    try {
+      let fileUri: vscode.Uri;
+      
+      // 如果从右键菜单调用，uri参数会传入
+      if (uri) {
+        fileUri = uri;
+      } else {
+        // 如果从命令面板调用，使用当前活动编辑器的文件
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+          vscode.window.showWarningMessage('没有打开的文件');
+          return;
+        }
+        fileUri = editor.document.uri;
+      }
+      
+      console.log('要查看的文件:', fileUri.fsPath);
+      
+      // 验证文件是否是JSON文件
+      if (!fileUri.fsPath.toLowerCase().endsWith('.json')) {
+        vscode.window.showWarningMessage('只能查看JSON文件中的MCP配置');
+        return;
+      }
+      
+      // 设置当前文件并加载服务器
+      mcpServersProvider.setCurrentFile(fileUri.fsPath);
+      
+      // 显示视图
+      vscode.commands.executeCommand('workbench.view.extension.addmcp-explorer');
+      
+    } catch (e) {
+      console.error('显示MCP服务器列表失败:', e);
+      vscode.window.showErrorMessage('显示MCP服务器列表失败: ' + e);
+    }
+  });
+  
+  // 注册刷新MCP服务器列表命令
+  const refreshServersCommand = vscode.commands.registerCommand('addmcp.mcpServersView.refresh', () => {
+    mcpServersProvider.refresh();
+  });
+  
+  // 注册添加MCP服务命令
+  const addServerCommand = vscode.commands.registerCommand('addmcp.mcpServersView.addServer', async () => {
+    try {
+      const currentFilePath = mcpServersProvider.getCurrentFilePath();
+      
+      if (!currentFilePath) {
+        vscode.window.showWarningMessage('没有活动的JSON文件，请先从资源管理器中选择一个JSON文件');
+        return;
+      }
+      
+      // 创建文件URI
+      const fileUri = vscode.Uri.file(currentFilePath);
+      
+      // 获取用户输入的JSON
+      const jsonInput = await getJsonInput();
+      if (!jsonInput) {
+        return; // 用户取消了输入
+      }
+      
+      // 添加JSON到文件
+      await addJsonToFile(fileUri, jsonInput);
+      
+      // 刷新服务器列表
+      mcpServersProvider.loadServers();
+      
+    } catch (e) {
+      console.error('添加MCP服务失败:', e);
+      vscode.window.showErrorMessage('添加MCP服务失败: ' + e);
+    }
+  });
+  
+  // 注册删除服务器命令
+  const deleteServerCommand = vscode.commands.registerCommand('addmcp.mcpServersView.deleteServer', (item: McpServerTreeItem) => {
+    mcpServersProvider.deleteServer(item);
+  });
+  
+  // 注册上移服务器命令
+  const moveUpCommand = vscode.commands.registerCommand('addmcp.mcpServersView.moveUp', (item: McpServerTreeItem) => {
+    mcpServersProvider.moveServer(item, 'up');
+  });
+  
+  // 注册下移服务器命令
+  const moveDownCommand = vscode.commands.registerCommand('addmcp.mcpServersView.moveDown', (item: McpServerTreeItem) => {
+    mcpServersProvider.moveServer(item, 'down');
+  });
 
   // 注册文档更改事件监听器
   const disposable = vscode.workspace.onDidChangeTextDocument((event: vscode.TextDocumentChangeEvent) => {
@@ -635,7 +1055,15 @@ export function activate(context: vscode.ExtensionContext) {
     disposable, 
     mergeCommand, 
     addMcpJsonCommand, 
-    addToCurrentFileCommand
+    addToCurrentFileCommand,
+    showMcpServersCommand,
+    refreshServersCommand,
+    addServerCommand,
+    deleteServerCommand,
+    moveUpCommand,
+    moveDownCommand,
+    searchCommand,
+    clearSearchCommand
   );
 }
 

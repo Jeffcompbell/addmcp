@@ -1,0 +1,104 @@
+{
+  "name": "mcp-merge-extension",
+  "displayName": "MCP Merge Extension",
+  "description": "自动合并mcp.json文件中的mcpServers对象",
+  "version": "0.2.0",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "icon": "resources/icon.png",
+  "activationEvents": [
+    "onLanguage:json"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "mcp-merge-extension.mergeMcpJson",
+        "title": "合并MCP JSON",
+        "icon": {
+          "light": "resources/menu-icon-light.png",
+          "dark": "resources/menu-icon-dark.png"
+        }
+      },
+      {
+        "command": "mcp-merge-extension.addMcpJson",
+        "title": "添加MCP JSON配置",
+        "icon": {
+          "light": "resources/menu-icon-light.png",
+          "dark": "resources/menu-icon-dark.png"
+        }
+      },
+      {
+        "command": "mcp-merge-extension.addToCurrentFile",
+        "title": "添加MCP JSON到当前文件",
+        "icon": {
+          "light": "resources/menu-icon-light.png",
+          "dark": "resources/menu-icon-dark.png"
+        }
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "when": "resourceExtname == .json",
+          "command": "mcp-merge-extension.addToCurrentFile",
+          "group": "1_modification"
+        }
+      ],
+      "explorer/context": [
+        {
+          "when": "resourceExtname == .json",
+          "command": "mcp-merge-extension.addToCurrentFile",
+          "group": "1_modification"
+        }
+      ],
+      "editor/title": [
+        {
+          "when": "resourceExtname == .json",
+          "command": "mcp-merge-extension.addToCurrentFile",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "mcp-merge-extension.mergeMcpJson",
+          "when": "editorLangId == json"
+        },
+        {
+          "command": "mcp-merge-extension.addMcpJson",
+          "when": "true"
+        },
+        {
+          "command": "mcp-merge-extension.addToCurrentFile",
+          "when": "editorLangId == json"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/node": "^16.11.7",
+    "@types/vscode": "^1.75.0",
+    "@typescript-eslint/eslint-plugin": "^5.30.0",
+    "@typescript-eslint/parser": "^5.30.0",
+    "eslint": "^8.18.0",
+    "typescript": "^4.7.4",
+    "vscode-test": "^1.5.2"
+  },
+  "publisher": "mcp-tools",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/example/mcp-merge-extension"
+  }
+}
